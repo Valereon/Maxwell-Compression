@@ -1,9 +1,10 @@
 import perlin_noise
 import random
 
-file = r"01101000011001010111100100100000011011010111100100100000011011100110000101101101011001010010000001101001011100110010000001101101011000010111100000100000011000010110111001100100001000000111010001101000011010010111001100100000011010010111001100100000011101000110100001100101001000000110011001101001011100100111001101110100001000000111010001100101011100110111010000100000011011110110011000100000011011010110000101111000011101110110010101101100011011000010110101100011011011110110110101110000011100100110010101110011011100110110100101101111011011100010000001101001001000000110001101100001011011010110010100100000011101010111000000100000011101110110100101110100011010000010000001110100011010000110100101110011001000000110110101100101011101000110100001101111011001000010000001101101011110010111001101100101011011000110011000100001"
+file = r"01110111011010000110000101110100011100110010000001110101011100000010000001100100011010010111000001110011011010000110100101110100"
 
-seed = 25565
+seed = 30796
+numberOfOffsets = 1
 
 def resetSeeds():
     global noise, noise1, noise2, noise3, noise4, noise5
@@ -17,29 +18,30 @@ def resetSeeds():
 
 def layerNoise(pos):
     return noise1.noise(pos) + noise2.noise(pos) + noise3.noise(pos) + noise4.noise(pos) + noise5.noise(pos) + noise.noise(pos)
+
 resetSeeds()
 def encode():
     i = 0
     chunkIndex = 0
     tape = []
     while(True):
-        if(chunkIndex*2 + 2 == len(file)):
+        if(chunkIndex >= len(file)):
             break
 
         num = str(layerNoise(i/100))
+
         if(num.__contains__("-")):
             chunkInNoise = num[3:5]
         else:
             chunkInNoise = num[2:4]
                 
         binary_4bit = format(int(chunkInNoise) % 4, '02b').zfill(2)
-
         if(file[chunkIndex:chunkIndex+2] == binary_4bit):
+            print(f"chunkInNoise: '{chunkInNoise}' -> binary: {binary_4bit}")
             tape.append(True)
-            chunkIndex += 1
+            chunkIndex += 2
         else:
             tape.append(False)
-            # print(False)
         i += 1
     return tape
 
@@ -47,16 +49,16 @@ def encode():
 
 
 smallestTape = encode()
-smallestTapeSeed = 0
-for i in range(50):
-    seed = random.randint(0,100000)
-    resetSeeds()
-    tape = encode()
-    if(len(tape) < len(smallestTape)):
-        print("IT HAPENEDNIENFGPINEFPINWPIFNWEPIFNPIOWENFPINEWFPINWEFPINPIEWFNPIEWNFPINEFPIN")
-        smallestTape = tape
-        smallestTapeSeed = seed
-    print(f"looped {i}")
+# smallestTapeSeed = 0
+# for i in range(numberOfOffsets):
+#     seed = random.randint(0,100000)
+#     resetSeeds()
+#     tape = encode()
+#     if(len(tape) < len(smallestTape)):
+#         print("IT HAPENEDNIENFGPINEFPINWPIFNWEPIFNPIOWENFPINEWFPINWEFPINPIEWFNPIEWNFPINEFPIN")
+#         smallestTape = tape
+#         smallestTapeSeed = seed
+#     print(f"looped {i}")
 
 
 finalString = ""
@@ -70,4 +72,4 @@ with open("tape.txt", "w") as file:
     file.write(finalString)
 
 
-print(smallestTapeSeed)
+# print(smallestTapeSeed)
