@@ -57,9 +57,6 @@ def encodeDeltas(tape_string):
     
     return deltas
 
-
-
-
 # any score below 1 is compression anything above is inflation
 def ScoreTape(tape):
     zero_runs = splitTape(tape).split("1")
@@ -86,6 +83,9 @@ def ScoreTape(tape):
         repeatedPatterns = 1
     return (uniquePatterns / repeatedPatterns) / len(run_lengths)
     
+
+
+
     
     
     # uniquePatterns = 0

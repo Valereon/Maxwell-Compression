@@ -1,0 +1,226 @@
+import perlin_noise
+import point
+import matplotlib.pyplot as plt
+import numpy as np
+import concurrent.futures
+import threading
+
+seed = 10000
+
+xSize = 14
+ySize = 14
+
+points = []
+fileContent = ""
+BIT_LENGTH = 4
+noisePoints = []
+ZOOM_AMOUNT = 20
+SEED_INCREMENT = 1
+OCTAVES = 8
+
+noise = None
+
+# Shared variables for best score and seed
+bestScore = 9999999999999999999999999999999999999
+bestSeed = 0
+best_lock = threading.Lock()
+stop_event = threading.Event()
+
+def ReadFile(filePath):
+    local_points = []
+    with open(filePath, 'r') as file:
+        content = file.readlines()
+    content = content[0]
+    for i in range(0, len(content), BIT_LENGTH):
+        point1 = point.Point(content[i:i+BIT_LENGTH])
+        local_points.append(point1)
+    return local_points
+
+def GetNoise(noise_obj, x, y):
+    return noise_obj.noise((x, y))
+
+def ChangeNoiseSeed(octaves, seed):
+    return perlin_noise.PerlinNoise(octaves, seed)
+
+def FillNoiseList(local_points, noise_obj):
+    local_noisePoints = []
+    for y in range(ySize):
+        for x in range(xSize):
+            xyNoise = GetNoise(noise_obj, x/ZOOM_AMOUNT, y/ZOOM_AMOUNT)
+            
+            if str(xyNoise).__contains__("-"):
+                xyNoise_int = int(str(xyNoise)[3:3+BIT_LENGTH])
+            else:
+                xyNoise_int = int(str(xyNoise)[2:2+BIT_LENGTH])
+            
+            fitted_value = xyNoise_int % (1 << BIT_LENGTH)
+            binary_formatted = format(fitted_value, f'0{BIT_LENGTH}b')
+            
+            noisePoint = point.Point(binary_formatted)
+            noisePoint.SetXY(x, y)
+            local_noisePoints.append(noisePoint)
+    return local_noisePoints
+
+def score(local_points, local_noisePoints):
+    total = 0
+    for i in range(len(local_points)):
+        total += abs(int(local_points[i].binaryValue, 2) - int(local_noisePoints[i].binaryValue, 2))
+    return total
+
+def Generate(local_points, noise_obj):
+    for i in range(len(local_points)):
+        local_points[i].SetIdentifier(i)
+    
+    local_noisePoints = FillNoiseList(local_points, noise_obj)
+
+    local_points.sort(key=lambda x: x.binaryValue)
+    sortedNoisePoints = sorted(local_noisePoints, key=lambda x: x.binaryValue)
+    for i in range(len(local_points)):
+        local_points[i].SetXY(sortedNoisePoints[i].x, sortedNoisePoints[i].y)
+    
+    return local_points, local_noisePoints
+
+def worker(start_seed):
+    global bestScore, bestSeed
+    local_seed = start_seed
+    local_best_score = 9999999999999999999999999999999999999
+    local_best_seed = start_seed
+    print(f"Thread starting with seed {start_seed}")
+    
+    try:
+        while not stop_event.is_set():
+            local_points = ReadFile("experiments/Reorg/source.txt")
+            noise_obj = ChangeNoiseSeed(OCTAVES, local_seed)
+            local_points, local_noisePoints = Generate(local_points, noise_obj)
+            sumOfGrid = score(local_points, local_noisePoints)
+            
+            if sumOfGrid < local_best_score:
+                local_best_score = sumOfGrid
+                local_best_seed = local_seed
+                # Update global best immediately when found
+                with best_lock:
+                    if local_best_score < bestScore:
+                        bestScore = local_best_score
+                        bestSeed = local_best_seed
+                        print(f"BETTER SCORE AND SEED {bestScore} with seed {bestSeed}")
+            
+            local_seed += SEED_INCREMENT
+            
+            # Check every 10 iterations to be responsive to stop_event
+            if local_seed % 10 == 0 and stop_event.is_set():
+                break
+                
+    except Exception as e:
+        print(f"Thread error: {e}")
+    
+    print(f"Thread with start seed {start_seed} finished")
+
+def DisplayGrayscalePlots(points, noisePoints):
+    """
+    Displays the sorted points, noisePoints, difference, and raw Perlin noise side by side.
+    """
+    # Create 2D arrays
+    points_grid = np.zeros((ySize, xSize))
+    noise_grid = np.zeros((ySize, xSize))
+    raw_noise_grid = np.zeros((ySize, xSize))
+    
+    # Fill raw noise grid
+    noise_obj = ChangeNoiseSeed(OCTAVES, bestSeed)
+    for y in range(ySize):
+        for x in range(xSize):
+            raw_noise = GetNoise(noise_obj, x/ZOOM_AMOUNT, y/ZOOM_AMOUNT)
+            scaled_value = ((raw_noise + 1) / 2) * 255
+            raw_noise_grid[y, x] = scaled_value
+    
+    # Debug: Print min/max
+    print(f"Raw noise min: {np.min(raw_noise_grid)}, max: {np.max(raw_noise_grid)}")
+    
+    # Fill points grid
+    for p in points:
+        x, y = int(p.x), int(p.y)
+        if 0 <= x < xSize and 0 <= y < ySize:
+            value = int(p.binaryValue, 2) / ((1 << BIT_LENGTH) - 1) * 255
+            points_grid[y, x] = value
+    
+    # Fill noisePoints grid
+    for npz in noisePoints:
+        x, y = int(npz.x), int(npz.y)
+        if 0 <= x < xSize and 0 <= y < ySize:
+            value = int(npz.binaryValue, 2) / ((1 << BIT_LENGTH) - 1) * 255
+            noise_grid[y, x] = value
+    
+    # Compute difference
+    diff_grid = np.abs(points_grid - noise_grid)
+    
+    # Create 4 subplots
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 12))
+    
+    # Plot sorted points
+    im1 = ax1.imshow(points_grid, cmap='gray', vmin=0, vmax=255)
+    ax1.set_title('Sorted Points (Linear Due to Sorting)')
+    plt.colorbar(im1, ax=ax1, shrink=0.8)
+    
+    # Plot noisePoints
+    im2 = ax2.imshow(noise_grid, cmap='gray', vmin=0, vmax=255)
+    ax2.set_title('Noise Points (Processed)')
+    plt.colorbar(im2, ax=ax2, shrink=0.8)
+    
+    # Plot difference
+    im3 = ax3.imshow(diff_grid, cmap='hot', vmin=0, vmax=np.max(diff_grid))
+    ax3.set_title('Difference')
+    plt.colorbar(im3, ax=ax3, shrink=0.8)
+    
+    # Plot raw Perlin noise
+    raw_min = np.min(raw_noise_grid)
+    raw_max = np.max(raw_noise_grid)
+    im4 = ax4.imshow(raw_noise_grid, cmap='plasma', vmin=raw_min, vmax=raw_max)
+    ax4.set_title('Raw Perlin Noise (Enhanced Contrast)')
+    plt.colorbar(im4, ax=ax4, shrink=0.8)
+    
+    plt.tight_layout()
+    plt.show()
+
+def Main():
+    print("Starting multithreaded seed search...")
+    global bestSeed
+    num_threads = 4  # Adjust based on your CPU cores
+    start_seeds = [seed + i * 100 for i in range(num_threads)]  # Spread starting seeds
+    
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+            futures = [executor.submit(worker, start_seed) for start_seed in start_seeds]
+            
+            # Just wait for keyboard interrupt - don't wait for completion
+            while True:
+                import time
+                time.sleep(0.1)  # Small sleep to be responsive
+                
+    except KeyboardInterrupt:
+        print("\nKeyboardInterrupt caught, stopping threads...")
+        stop_event.set()
+        
+        # Give threads a moment to see the stop event
+        import time
+        time.sleep(1)
+    
+    print("Best Seed was " + str(bestSeed))
+    print("Best score was " + str(bestScore))
+    
+    # Only display if we found a valid seed
+    if bestSeed != 0:
+        try:
+            print(f"Regenerating data with best seed {bestSeed} for display...")
+            # Clear any existing data to ensure clean state
+            points.clear() if 'points' in globals() else None
+            noisePoints.clear() if 'noisePoints' in globals() else None
+            
+            # Regenerate with best seed for display
+            points = ReadFile("experiments/Reorg/source.txt")
+            noise_obj = ChangeNoiseSeed(OCTAVES, bestSeed)
+            points, noisePoints = Generate(points, noise_obj)
+            print(f"Generated {len(points)} points and {len(noisePoints)} noise points")
+            DisplayGrayscalePlots(points, noisePoints, noise_obj)
+        except Exception as e:
+            print(f"Error displaying plots: {e}")
+
+Main()

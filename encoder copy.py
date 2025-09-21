@@ -1,62 +1,23 @@
-import numpy as np
+import perlin_noise
+import random
 
 file = r"01110111011010000110000101110100011100110010000001110101011100000010000001100100011010010111000001110011011010000110100101110100"
 
-# Global seed and RNGs
 seed = 30796
 numberOfOffsets = 100000
 
-# per-layer PCG64 generators will be stored here
-master_rng = np.random.Generator(np.random.PCG64(seed))
-
-def resetSeeds(s=seed):
-    """Initialize per-layer PCG64 generators using base seed s."""
-    global rng_layers, master_rng, seed
-    seed = s
-    master_rng = np.random.Generator(np.random.PCG64(seed))
-    # create several independent streams by using different offsets
-    rng_layers = [np.random.Generator(np.random.PCG64(seed + off)) for off in (1,2,4,6,8,10)]
+def resetSeeds():
+    global noise, noise1, noise2, noise3, noise4, noise5
+    noise = perlin_noise.PerlinNoise(1, seed)
+    noise5  = perlin_noise.PerlinNoise(2, seed)
+    noise1 = perlin_noise.PerlinNoise(4, seed)
+    noise2 = perlin_noise.PerlinNoise(6,seed)
+    noise3 = perlin_noise.PerlinNoise(8,seed)
+    noise4 = perlin_noise.PerlinNoise(10,seed)
 
 
-def splitmix64(x: int) -> int:
-    """Simple 64-bit mix function to derive per-position seeds.
-
-    Returns a 64-bit integer derived from input x. Stable and fast.
-    """
-    x = (x + 0x9e3779b97f4a7c15) & 0xFFFFFFFFFFFFFFFF
-    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9 & 0xFFFFFFFFFFFFFFFF
-    x = (x ^ (x >> 27)) * 0x94d049bb133111eb & 0xFFFFFFFFFFFFFFFF
-    x = x ^ (x >> 31)
-    return x
-
-
-def layerNoise(pos=None):
-    """Produce positional layered noise using PCG64 per position.
-
-    `pos` is the same value passed from `encode()` (was i/100). We derive
-    an integer position index from it (int(pos * 100)) to match the
-    previous granularity, then create one small PCG64 generator per layer
-    seeded from mix(seed, position, layer_index). We sample a single
-    standard-normal from each layer and sum them.
-    """
-    # Map pos (float) to integer index to keep previous behavior
-    if pos is None:
-        p = 0
-    else:
-        try:
-            p = int(round(float(pos) * 100))
-        except Exception:
-            p = int(pos)
-
-    s = 0.0
-    # Use a handful of layers similar to prior implementation
-    for layer_idx in (1, 2, 4, 6, 8, 10):
-        mix_input = (seed & 0xFFFFFFFFFFFFFFFF) ^ ((p << 4) + layer_idx)
-        layer_seed = splitmix64(mix_input)
-        rng = np.random.Generator(np.random.PCG64(layer_seed))
-        s += float(rng.standard_normal())
-
-    return s
+def layerNoise(pos):
+    return noise1.noise(pos) + noise2.noise(pos) + noise3.noise(pos) + noise4.noise(pos) + noise5.noise(pos) + noise.noise(pos)
 
 resetSeeds()
 def encode():
@@ -74,11 +35,11 @@ def encode():
         else:
             chunkInNoise = num[2:4]
                 
-        binary_4bit = format(int(chunkInNoise) % 4, '02b').zfill(2)
+        binary_4bit = format(int(chunkInNoise) % 4, '01b').zfill(1)
         if(file[chunkIndex:chunkIndex+2] == binary_4bit):
             # print(f"chunkInNoise: '{chunkInNoise}' -> binary: {binary_4bit}")
             tape.append(True)
-            chunkIndex += 2
+            chunkIndex += 1
         else:
             tape.append(False)
         i += 1
@@ -131,7 +92,7 @@ def ScoreTape(tape):
 smallestTapeScore = 999999999999999999999
 smallestTapeSeed = 0
 for i in range(numberOfOffsets):
-    seed = int(master_rng.integers(0, 100001))
+    seed = random.randint(0,100000)
     resetSeeds()
     tape = encode()
     currentScore = ScoreTape(tape)
